@@ -511,19 +511,20 @@ export function Workout() {
 
       {(day.type === 'workout' || day.type === 'active_recovery') && !completion ? (
         <div
-          className="hold-to-log-button fixed left-0 right-0 z-30 flex flex-col gap-2 px-6"
-          style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
+          className="hold-to-log-button fixed left-0 right-0 z-30 border-t border-[var(--border-subtle)]/50 px-4 py-3 backdrop-blur-md"
+          style={{
+            bottom: 'calc(80px + env(safe-area-inset-bottom))',
+            backgroundColor: 'rgba(8, 8, 16, 0.95)',
+          }}
         >
-          <div className="mx-auto w-full max-w-[480px]">
-            <Button
-              variant="ghost"
-              className="w-full min-h-[44px] border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+          <div className="mx-auto flex w-full max-w-[480px] flex-col gap-[10px]">
+            <button
+              type="button"
               onClick={() => navigate('/custom-workout')}
+              className="w-full min-h-[48px] rounded-xl border border-[var(--neon-blue)]/40 bg-[rgba(0,212,255,0.06)] px-5 py-3 text-center font-display text-xs font-bold uppercase tracking-[0.14em] text-[var(--neon-blue)] shadow-[0_0_0_1px_rgba(0,212,255,0.08)] transition-[border-color,background-color] hover:border-[var(--neon-blue)]/65 hover:bg-[rgba(0,212,255,0.1)]"
             >
               LOG CUSTOM INSTEAD →
-            </Button>
-          </div>
-          <div className="mx-auto max-w-[480px]">
+            </button>
             <motion.button
               type="button"
               disabled={loadingDrills && day.type === 'workout'}
@@ -533,7 +534,7 @@ export function Workout() {
               onPointerLeave={onPointerUpLeave}
               animate={holding ? { scale: [1, 1.02, 1] } : { scale: 1 }}
               transition={holding ? { repeat: Infinity, duration: 0.5 } : {}}
-              className="relative min-h-[64px] w-full overflow-hidden rounded-[50px] border border-[var(--neon-green)] bg-[var(--bg-elevated)] py-4 text-center font-display text-sm font-bold uppercase tracking-[0.15em] text-[var(--neon-green)] disabled:opacity-40"
+              className="relative min-h-[64px] w-full max-w-none shrink-0 overflow-hidden rounded-[50px] border border-[var(--neon-green)] bg-[var(--bg-elevated)] py-4 text-center font-display text-sm font-bold uppercase tracking-[0.15em] text-[var(--neon-green)] disabled:opacity-40"
             >
               <span
                 className="pointer-events-none absolute inset-y-0 left-0 bg-[var(--neon-green)]/35"
