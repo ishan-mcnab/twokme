@@ -314,6 +314,13 @@ export function Workout() {
         <Button className="mt-8 min-h-[44px]" variant="ghost" onClick={() => navigate('/dashboard')}>
           ← Back to dashboard
         </Button>
+        <Button
+          className="mt-3 min-h-[44px] border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+          variant="ghost"
+          onClick={() => navigate('/custom-workout')}
+        >
+          LOG CUSTOM INSTEAD →
+        </Button>
       </div>
     )
   }
@@ -343,6 +350,13 @@ export function Workout() {
         </p>
         <Button className="mt-8" variant="ghost" onClick={() => navigate('/dashboard')}>
           ← BACK TO DASHBOARD
+        </Button>
+        <Button
+          className="mt-3 min-h-[44px] border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+          variant="ghost"
+          onClick={() => navigate('/custom-workout')}
+        >
+          LOG CUSTOM WORKOUT →
         </Button>
       </div>
     )
@@ -382,7 +396,7 @@ export function Workout() {
       : []
 
   return (
-    <div className="relative min-h-dvh bg-[var(--bg-primary)] pb-36 text-[var(--text-primary)]">
+    <div className="relative min-h-dvh bg-[var(--bg-primary)] pb-48 text-[var(--text-primary)]">
       <header className="sticky top-0 z-20 border-b border-[var(--border-subtle)] bg-[rgba(8,8,16,0.92)] backdrop-blur-md">
         <div className="mx-auto flex h-12 w-full max-w-[480px] items-center px-3">
           <button
@@ -497,9 +511,18 @@ export function Workout() {
 
       {(day.type === 'workout' || day.type === 'active_recovery') && !completion ? (
         <div
-          className="hold-to-log-button fixed left-0 right-0 z-30 px-6"
+          className="hold-to-log-button fixed left-0 right-0 z-30 flex flex-col gap-2 px-6"
           style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
         >
+          <div className="mx-auto w-full max-w-[480px]">
+            <Button
+              variant="ghost"
+              className="w-full min-h-[44px] border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+              onClick={() => navigate('/custom-workout')}
+            >
+              LOG CUSTOM INSTEAD →
+            </Button>
+          </div>
           <div className="mx-auto max-w-[480px]">
             <motion.button
               type="button"

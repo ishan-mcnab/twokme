@@ -335,6 +335,15 @@ export function Dashboard() {
             <Button className="mt-6 min-h-[44px] w-full" variant="primary" onClick={() => navigate('/onboarding')}>
               START YOUR COMBINE →
             </Button>
+            {currentBuild?.id ? (
+              <Button
+                className="mt-3 min-h-[44px] w-full border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+                variant="ghost"
+                onClick={() => navigate('/custom-workout')}
+              >
+                LOG CUSTOM WORKOUT →
+              </Button>
+            ) : null}
           </Card>
         ) : planComplete ? (
           <Card glowing className="p-6 text-center">
@@ -347,6 +356,15 @@ export function Dashboard() {
             <Button className="mt-6 min-h-[44px] w-full" variant="primary" onClick={() => navigate('/onboarding')}>
               START A NEW PLAN →
             </Button>
+            {currentBuild?.id ? (
+              <Button
+                className="mt-3 min-h-[44px] w-full border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+                variant="ghost"
+                onClick={() => navigate('/custom-workout')}
+              >
+                LOG CUSTOM WORKOUT →
+              </Button>
+            ) : null}
           </Card>
         ) : (
           <Card glowing className="p-5">
@@ -381,20 +399,53 @@ export function Dashboard() {
               ) : null}
             </div>
             {isRestDay ? (
-              <div className="mt-6 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3 text-center">
-                <p className="font-display text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  REST DAY
-                </p>
-                <p className="mt-2 font-body text-sm text-[var(--text-secondary)]">{day?.coachNote}</p>
-              </div>
+              <>
+                <div className="mt-6 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-elevated)] px-4 py-3 text-center">
+                  <p className="font-display text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    REST DAY
+                  </p>
+                  <p className="mt-2 font-body text-sm text-[var(--text-secondary)]">{day?.coachNote}</p>
+                </div>
+                {currentBuild?.id ? (
+                  <Button
+                    className="mt-4 min-h-[44px] w-full border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+                    variant="ghost"
+                    onClick={() => navigate('/custom-workout')}
+                  >
+                    LOG CUSTOM WORKOUT →
+                  </Button>
+                ) : null}
+              </>
             ) : isWorkoutDay && alreadyLoggedToday ? (
-              <p className="mt-6 text-center font-mono text-sm font-bold text-[var(--neon-green)]">
-                ✓ LOGGED TODAY
-              </p>
+              <>
+                <p className="mt-6 text-center font-mono text-sm font-bold text-[var(--neon-green)]">
+                  ✓ LOGGED TODAY
+                </p>
+                {currentBuild?.id ? (
+                  <Button
+                    className="mt-4 min-h-[44px] w-full border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+                    variant="ghost"
+                    onClick={() => navigate('/custom-workout')}
+                  >
+                    LOG ANOTHER WORKOUT →
+                  </Button>
+                ) : null}
+              </>
             ) : isWorkoutDay ? (
-              <Button className="mt-6 min-h-[44px] w-full" variant="primary" onClick={() => navigate('/workout')}>
-                START WORKOUT →
-              </Button>
+              <>
+                <Button className="mt-6 min-h-[44px] w-full" variant="primary" onClick={() => navigate('/workout')}>
+                  START WORKOUT →
+                </Button>
+                {currentBuild?.id ? (
+                  <Button
+                    className="mt-3 min-h-[44px] w-full border border-dashed border-[var(--border-subtle)] text-[var(--neon-blue)]"
+                    variant="ghost"
+                    onClick={() => navigate('/custom-workout')}
+                  >
+                    LOG CUSTOM WORKOUT →
+                  </Button>
+                ) : null}
+              </>
             ) : null}
           </Card>
         )}

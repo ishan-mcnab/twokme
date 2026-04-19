@@ -142,7 +142,7 @@ export function Profile() {
     } finally {
       setResetting(false)
     }
-  }, [user?.id, currentBuild?.id, navigate, resetAfterBuildDelete])
+  }, [user, currentBuild, navigate, resetAfterBuildDelete])
 
   return (
     <div className="min-h-dvh bg-[var(--bg-primary)] text-[var(--text-primary)]">

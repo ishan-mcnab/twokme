@@ -4,6 +4,7 @@ import { NavLink, useLocation } from 'react-router-dom'
 const TABS = [
   { to: '/dashboard', label: 'HOME', icon: '🏠' },
   { to: '/workout', label: 'WORKOUT', icon: '🏀' },
+  { to: '/leaderboard', label: 'RANKS', icon: '🏆' },
   { to: '/player-card', label: 'MY CARD', icon: '📋' },
   { to: '/profile', label: 'PROFILE', icon: '👤' },
 ]
@@ -25,14 +26,14 @@ export function BottomNav() {
       className="bottom-nav fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--border-subtle)] bg-[rgba(8,8,16,0.96)] backdrop-blur-md"
       aria-label="Main"
     >
-      <div className="mx-auto flex max-w-[480px] items-stretch justify-around px-1 pt-1">
+      <div className="mx-auto flex max-w-[480px] items-stretch justify-around px-0.5 pt-1">
         {TABS.map((tab) => (
           <NavLink
             key={tab.to}
             to={tab.to}
             className={({ isActive }) =>
               [
-                'flex min-h-[56px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-1 py-2 font-display text-[10px] font-bold uppercase tracking-wide transition-colors',
+                'flex min-h-[56px] min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-lg px-0.5 py-2 font-display text-[9px] font-bold uppercase tracking-wide transition-colors sm:text-[10px]',
                 isActive ? 'text-[var(--neon-blue)]' : 'text-[var(--text-muted)]',
               ].join(' ')
             }

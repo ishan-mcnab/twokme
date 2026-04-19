@@ -3,6 +3,7 @@ import { ATTRIBUTE_KEYS, computeOVR } from './attributeMapping'
 import { syncAttributesToStore } from './profile'
 import { calculateStreakMultiplier, getStreakStatus } from './streakSystem'
 import { checkForEvolution } from './evolutionDetector'
+import { refreshLeaderboardForUser } from './leaderboard'
 import useAppStore from '../store/useAppStore'
 
 const XP_BY_INTENSITY = {
@@ -325,12 +326,193 @@ export async function logWorkoutAndDistributeXP(
     })
   }
 
+  const nextPlanDay = Number(updatedPlan?.current_day) || currentPlanDay + 1
+  await refreshLeaderboardForUser(userId, buildId, nextPlanDay)
+
   return {
     attributes: mergedBuildAttrs,
     streakDay: newStreakDay,
     xpEarned,
     streakBroken,
     planRow: updatedPlan,
+    skipped: false,
+  }
+}
+
+const CUSTOM_XP_BY_INTENSITY = { light: 15, moderate: 25, intense: 40 }
+
+/**
+ * Log a custom session (does not advance the plan day).
+ * @param {string} userId
+ * @param {string} buildId
+ * @param {{ workoutName: string, focusAttributes: string[], intensity: 'light'|'moderate'|'intense' }} workoutData
+ * @param {number} planCurrentDay — `workout_plans.current_day` for streak gating
+ */
+export async function logCustomWorkout(userId, buildId, workoutData, planCurrentDay = 1) {
+  if (!supabase) {
+    return {
+      attributes: {},
+      streakDay: 0,
+      xpEarned: {},
+      streakBroken: false,
+      planRow: null,
+      skipped: false,
+    }
+  }
+
+  const name = String(workoutData?.workoutName || '').trim().slice(0, 50)
+  const focus = Array.isArray(workoutData?.focusAttributes)
+    ? workoutData.focusAttributes.filter((k) => typeof k === 'string' && ATTRIBUTE_KEYS.includes(k)).slice(0, 3)
+    : []
+  const intensityKey = String(workoutData?.intensity || 'moderate').toLowerCase()
+  if (focus.length !== 3) {
+    throw new Error('Select exactly 3 attributes.')
+  }
+  if (!name) {
+    throw new Error('Workout name is required.')
+  }
+
+  const planDay = Math.max(1, Math.round(Number(planCurrentDay) || 1))
+  const streakInfo = await getStreakStatus(userId, buildId, planDay)
+
+  let mult = calculateStreakMultiplier(streakInfo.currentStreak)
+  if (streakInfo.streakBroken) mult *= 0.8
+
+  const base = CUSTOM_XP_BY_INTENSITY[intensityKey] ?? CUSTOM_XP_BY_INTENSITY.moderate
+  /** @type {Record<string, number>} */
+  const xpEarned = {}
+  for (const attr of focus) {
+    xpEarned[attr] = Math.max(10, Math.round(base * mult))
+  }
+
+  const newStreakDay = streakInfo.loggedCalendarToday
+    ? streakInfo.currentStreak
+    : streakInfo.currentStreak + 1
+
+  const { error: logErr } = await supabase.from('workout_logs').insert({
+    user_id: userId,
+    build_id: buildId,
+    day_number: null,
+    xp_earned: xpEarned,
+    streak_day: newStreakDay,
+    workout_name: name,
+    is_custom: true,
+  })
+  if (logErr) throw logErr
+
+  const { data: progressRows, error: progErr } = await supabase
+    .from('attribute_progress')
+    .select('attribute_key, total_xp, current_value')
+    .eq('user_id', userId)
+    .eq('build_id', buildId)
+  if (progErr) throw progErr
+
+  const byKey = Object.fromEntries((progressRows || []).map((r) => [r.attribute_key, r]))
+
+  const updates = ATTRIBUTE_KEYS.map((key) => {
+    const row = byKey[key]
+    let prevTotal = Number(row?.total_xp) || 0
+    const curVal = Number(row?.current_value) || 50
+    if (prevTotal === 0) prevTotal = seedTotalXpForRating(curVal)
+    const add = xpEarned[key] || 0
+    const newTotal = prevTotal + add
+    const newVal = calculateNewAttributeValue(newTotal)
+    return supabase
+      .from('attribute_progress')
+      .update({
+        total_xp: newTotal,
+        current_value: newVal,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('user_id', userId)
+      .eq('build_id', buildId)
+      .eq('attribute_key', key)
+      .then(({ error }) => {
+        if (error) throw error
+        return [key, newVal]
+      })
+  })
+
+  const pairs = await Promise.all(updates)
+  const mergedAttributes = Object.fromEntries(pairs)
+
+  const { data: buildRow, error: buildErr } = await supabase
+    .from('player_builds')
+    .select('attributes')
+    .eq('id', buildId)
+    .single()
+  if (buildErr) throw buildErr
+
+  const prevAttrs =
+    typeof buildRow?.attributes === 'object' && buildRow.attributes !== null
+      ? buildRow.attributes
+      : {}
+  let mergedBuildAttrs = { ...prevAttrs, ...mergedAttributes }
+
+  const setCb = useAppStore.getState().setCurrentBuild
+  const syncRes = await syncAttributesToStore(
+    userId,
+    buildId,
+    setCb,
+    useAppStore.getState().currentBuild,
+  )
+  if (syncRes?.attributes) mergedBuildAttrs = syncRes.attributes
+
+  const { error: buildUpErr } = await supabase
+    .from('player_builds')
+    .update({
+      attributes: mergedBuildAttrs,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', buildId)
+  if (buildUpErr) throw buildUpErr
+
+  const { data: buildMeta } = await supabase
+    .from('player_builds')
+    .select('archetype')
+    .eq('id', buildId)
+    .single()
+
+  const { data: profRow } = await supabase
+    .from('profiles')
+    .select('position')
+    .eq('id', userId)
+    .maybeSingle()
+
+  const pos = String(profRow?.position || 'SF').toUpperCase()
+  const evo = checkForEvolution(
+    { archetype: buildMeta?.archetype },
+    /** @type {Record<string, number>} */ (mergedBuildAttrs),
+    pos,
+  )
+  if (evo) {
+    const oldOvr = computeOVR(
+      /** @type {Record<string, number>} */ (prevAttrs),
+      pos,
+    )
+    const newOvr = computeOVR(
+      /** @type {Record<string, number>} */ (mergedBuildAttrs),
+      pos,
+    )
+    useAppStore.getState().setEvolutionPending(true, {
+      newArchetype: evo.newArchetype,
+      oldArchetype: evo.oldArchetype,
+      scoreDiff: evo.scoreDiff,
+      newScore: evo.newScore,
+      oldOvr,
+      newOvr,
+      prevAttributes: { ...prevAttrs },
+    })
+  }
+
+  await refreshLeaderboardForUser(userId, buildId, planDay)
+
+  return {
+    attributes: mergedBuildAttrs,
+    streakDay: newStreakDay,
+    xpEarned,
+    streakBroken: streakInfo.streakBroken,
+    planRow: null,
     skipped: false,
   }
 }

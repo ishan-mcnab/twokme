@@ -22,6 +22,12 @@ const Evolution = lazy(() => import('./pages/Evolution').then((m) => ({ default:
 const ArchetypeReveal = lazy(() =>
   import('./pages/onboarding/ArchetypeReveal').then((m) => ({ default: m.ArchetypeReveal })),
 )
+const Leaderboard = lazy(() =>
+  import('./pages/Leaderboard').then((m) => ({ default: m.Leaderboard })),
+)
+const CustomWorkout = lazy(() =>
+  import('./pages/CustomWorkout').then((m) => ({ default: m.CustomWorkout })),
+)
 
 export default function App() {
   return (
@@ -57,6 +63,8 @@ export default function App() {
             >
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/workout" element={<Workout />} />
+              <Route path="/leaderboard" element={<Leaderboard />} />
+              <Route path="/custom-workout" element={<CustomWorkout />} />
               <Route path="/player-card" element={<PlayerCard />} />
               <Route path="/profile" element={<Profile />} />
             </Route>

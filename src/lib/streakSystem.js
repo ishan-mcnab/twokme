@@ -24,7 +24,7 @@ export function calculateStreakMultiplier(currentStreak) {
  * @param {string} userId
  * @param {string|null|undefined} buildId
  * @param {number|null|undefined} planCurrentDay — `workout_plans.current_day` (plan index for the active session)
- * @returns {Promise<{ currentStreak: number, lastLogDate: string|null, alreadyLoggedToday: boolean, streakBroken: boolean }>}
+ * @returns {Promise<{ currentStreak: number, lastLogDate: string|null, alreadyLoggedToday: boolean, streakBroken: boolean, loggedCalendarToday: boolean }>}
  *
  * `alreadyLoggedToday` is true when a `workout_logs` row exists for this user+build with `day_number === planCurrentDay`
  * (each plan day can only be logged once). Calendar dates are not used for this flag.
@@ -38,6 +38,7 @@ export async function getStreakStatus(userId, buildId, planCurrentDay) {
       lastLogDate: null,
       alreadyLoggedToday: false,
       streakBroken: false,
+      loggedCalendarToday: false,
     }
   }
 
@@ -71,6 +72,7 @@ export async function getStreakStatus(userId, buildId, planCurrentDay) {
       lastLogDate: null,
       alreadyLoggedToday,
       streakBroken: false,
+      loggedCalendarToday: false,
     }
   }
 
@@ -114,6 +116,7 @@ export async function getStreakStatus(userId, buildId, planCurrentDay) {
     lastLogDate,
     alreadyLoggedToday,
     streakBroken,
+    loggedCalendarToday,
   }
 }
 
