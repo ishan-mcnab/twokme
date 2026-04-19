@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import { ATTRIBUTE_KEYS, computeOVR } from './attributeMapping'
 import { syncAttributesToStore } from './profile'
-import { calculateStreakMultiplier, getStreakStatus } from './streakSystem'
+import { calculateStreakMultiplier, getStreakStatus, utcDateString } from './streakSystem'
 import { checkForEvolution } from './evolutionDetector'
 import { refreshLeaderboardForUser } from './leaderboard'
 import useAppStore from '../store/useAppStore'
@@ -155,7 +155,9 @@ export async function logWorkoutAndDistributeXP(
   }
 
   const planDayForGate = Number(planRow?.current_day) || 1
-  const streakInfo = await getStreakStatus(userId, buildId, planDayForGate)
+  const streakInfo = await getStreakStatus(userId, buildId, planDayForGate, {
+    planLastLoggedDate: planRow?.last_logged_date,
+  })
   if (streakInfo.alreadyLoggedToday) {
     const { data: buildRow, error: buildErr } = await supabase
       .from('player_builds')
@@ -199,9 +201,11 @@ export async function logWorkoutAndDistributeXP(
     xpEarned[k] = Math.max(10, v)
   }
 
-  const newStreakDay = streakInfo.currentStreak + 1
+  const newStreakDay = streakInfo.loggedCalendarToday
+    ? streakInfo.currentStreak
+    : streakInfo.currentStreak + 1
 
-  const dayNumber = Number(workout?.dayNumber) || 1
+  const dayNumber = Number(workout?.dayNumber) || planDayForGate
 
   const { error: logErr } = await supabase.from('workout_logs').insert({
     user_id: userId,
@@ -270,10 +274,13 @@ export async function logWorkoutAndDistributeXP(
   )
   if (syncRes?.attributes) mergedBuildAttrs = syncRes.attributes
 
-  const currentPlanDay = Number(planRow?.current_day) || 1
   const { data: updatedPlan, error: planErr } = await supabase
     .from('workout_plans')
-    .update({ current_day: currentPlanDay + 1 })
+    .update({
+      last_logged_date: utcDateString(),
+      last_plan_roll_date: null,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', planRow.id)
     .select()
     .single()
@@ -326,8 +333,8 @@ export async function logWorkoutAndDistributeXP(
     })
   }
 
-  const nextPlanDay = Number(updatedPlan?.current_day) || currentPlanDay + 1
-  await refreshLeaderboardForUser(userId, buildId, nextPlanDay)
+  const planDayAfterLog = Number(updatedPlan?.current_day) || planDayForGate
+  await refreshLeaderboardForUser(userId, buildId, planDayAfterLog)
 
   return {
     attributes: mergedBuildAttrs,
@@ -342,13 +349,13 @@ export async function logWorkoutAndDistributeXP(
 const CUSTOM_XP_BY_INTENSITY = { light: 15, moderate: 25, intense: 40 }
 
 /**
- * Log a custom session (does not advance the plan day).
+ * Log a custom session — fulfills the current plan day (same `day_number` + `last_logged_date` as plan workouts).
  * @param {string} userId
  * @param {string} buildId
  * @param {{ workoutName: string, focusAttributes: string[], intensity: 'light'|'moderate'|'intense' }} workoutData
- * @param {number} planCurrentDay — `workout_plans.current_day` for streak gating
+ * @param {Record<string, unknown>|null|undefined} planRow — active `workout_plans` row
  */
-export async function logCustomWorkout(userId, buildId, workoutData, planCurrentDay = 1) {
+export async function logCustomWorkout(userId, buildId, workoutData, planRow) {
   if (!supabase) {
     return {
       attributes: {},
@@ -357,6 +364,35 @@ export async function logCustomWorkout(userId, buildId, workoutData, planCurrent
       streakBroken: false,
       planRow: null,
       skipped: false,
+    }
+  }
+
+  if (!planRow?.id) {
+    throw new Error('No active workout plan.')
+  }
+
+  const planDay = Math.max(1, Math.round(Number(planRow?.current_day) || 1))
+  const streakInfo = await getStreakStatus(userId, buildId, planDay, {
+    planLastLoggedDate: planRow?.last_logged_date,
+  })
+  if (streakInfo.alreadyLoggedToday) {
+    const { data: buildRow, error: buildErr } = await supabase
+      .from('player_builds')
+      .select('attributes')
+      .eq('id', buildId)
+      .single()
+    if (buildErr) throw buildErr
+    const attrs =
+      typeof buildRow?.attributes === 'object' && buildRow.attributes !== null
+        ? buildRow.attributes
+        : {}
+    return {
+      attributes: attrs,
+      streakDay: streakInfo.currentStreak,
+      xpEarned: {},
+      streakBroken: streakInfo.streakBroken,
+      planRow,
+      skipped: true,
     }
   }
 
@@ -371,9 +407,6 @@ export async function logCustomWorkout(userId, buildId, workoutData, planCurrent
   if (!name) {
     throw new Error('Workout name is required.')
   }
-
-  const planDay = Math.max(1, Math.round(Number(planCurrentDay) || 1))
-  const streakInfo = await getStreakStatus(userId, buildId, planDay)
 
   let mult = calculateStreakMultiplier(streakInfo.currentStreak)
   if (streakInfo.streakBroken) mult *= 0.8
@@ -392,7 +425,7 @@ export async function logCustomWorkout(userId, buildId, workoutData, planCurrent
   const { error: logErr } = await supabase.from('workout_logs').insert({
     user_id: userId,
     build_id: buildId,
-    day_number: null,
+    day_number: planDay,
     xp_earned: xpEarned,
     streak_day: newStreakDay,
     workout_name: name,
@@ -467,6 +500,22 @@ export async function logCustomWorkout(userId, buildId, workoutData, planCurrent
     .eq('id', buildId)
   if (buildUpErr) throw buildUpErr
 
+  let updatedPlan = planRow
+  if (planRow?.id) {
+    const { data: planUp, error: planErr } = await supabase
+      .from('workout_plans')
+      .update({
+        last_logged_date: utcDateString(),
+        last_plan_roll_date: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', planRow.id)
+      .select()
+      .single()
+    if (planErr) throw planErr
+    updatedPlan = planUp || planRow
+  }
+
   const { data: buildMeta } = await supabase
     .from('player_builds')
     .select('archetype')
@@ -512,7 +561,7 @@ export async function logCustomWorkout(userId, buildId, workoutData, planCurrent
     streakDay: newStreakDay,
     xpEarned,
     streakBroken: streakInfo.streakBroken,
-    planRow: null,
+    planRow: updatedPlan,
     skipped: false,
   }
 }

@@ -24,14 +24,15 @@ export function calculateStreakMultiplier(currentStreak) {
  * @param {string} userId
  * @param {string|null|undefined} buildId
  * @param {number|null|undefined} planCurrentDay — `workout_plans.current_day` (plan index for the active session)
+ * @param {{ planLastLoggedDate?: string|null }} [opts]
  * @returns {Promise<{ currentStreak: number, lastLogDate: string|null, alreadyLoggedToday: boolean, streakBroken: boolean, loggedCalendarToday: boolean }>}
  *
- * `alreadyLoggedToday` is true when a `workout_logs` row exists for this user+build with `day_number === planCurrentDay`
- * (each plan day can only be logged once). Calendar dates are not used for this flag.
+ * `alreadyLoggedToday` is true when `workout_plans.last_logged_date` is today (UTC), or (legacy) a `workout_logs`
+ * row exists for this user+build with `day_number === planCurrentDay` while `last_logged_date` is not set yet.
  *
  * Streak fields use UTC calendar dates on `completed_at` only.
  */
-export async function getStreakStatus(userId, buildId, planCurrentDay) {
+export async function getStreakStatus(userId, buildId, planCurrentDay, opts = {}) {
   if (!supabase || !userId) {
     return {
       currentStreak: 0,
@@ -43,9 +44,13 @@ export async function getStreakStatus(userId, buildId, planCurrentDay) {
   }
 
   const planDay = Math.max(1, Math.round(Number(planCurrentDay) || 1))
+  const today = utcDateString()
+  const planLast = opts.planLastLoggedDate
   let alreadyLoggedToday = false
 
-  if (buildId) {
+  if (typeof planLast === 'string' && planLast === today) {
+    alreadyLoggedToday = true
+  } else if (buildId && (planLast == null || planLast === '')) {
     const { data: dayLog, error: dayErr } = await supabase
       .from('workout_logs')
       .select('id')
@@ -76,7 +81,6 @@ export async function getStreakStatus(userId, buildId, planCurrentDay) {
     }
   }
 
-  const today = utcDateString()
   const datesWithLog = new Set(data.map((r) => utcDateString(new Date(r.completed_at))))
   const loggedCalendarToday = datesWithLog.has(today)
 

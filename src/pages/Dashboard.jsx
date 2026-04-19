@@ -13,6 +13,7 @@ import {
   getDayForCurrentPlanIndex,
   getPlanTotalDays,
   getPlanWeekMeta,
+  syncWorkoutPlanCalendarDay,
 } from '../lib/planGenerator'
 import { computeOVR, getRadarCategoryScores } from '../lib/attributeMapping'
 import { syncAttributesToStore } from '../lib/profile'
@@ -104,8 +105,18 @@ export function Dashboard() {
           }
         }
 
+        if (planRow?.id) {
+          const rolled = await syncWorkoutPlanCalendarDay(planRow)
+          if (!cancelled && rolled && rolled !== planRow) {
+            planRow = rolled
+            setCurrentWorkoutPlan(rolled)
+          }
+        }
+
         const planDay = Number(planRow?.current_day) || 1
-        const streak = await getStreakStatus(user.id, build.id, planDay)
+        const streak = await getStreakStatus(user.id, build.id, planDay, {
+          planLastLoggedDate: planRow?.last_logged_date,
+        })
         if (!cancelled) {
           setCurrentStreak(streak.currentStreak)
           setAlreadyLoggedToday(streak.alreadyLoggedToday)
@@ -139,6 +150,8 @@ export function Dashboard() {
     currentBuild?.id,
     currentWorkoutPlan?.current_day,
     currentWorkoutPlan?.id,
+    currentWorkoutPlan?.last_logged_date,
+    currentWorkoutPlan?.last_plan_roll_date,
     setCurrentBuild,
     setCurrentWorkoutPlan,
     setCurrentStreak,

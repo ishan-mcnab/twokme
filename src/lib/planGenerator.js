@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { ATTRIBUTE_KEYS } from './attributeMapping'
+import { utcDateString } from './streakSystem'
 import useAppStore from '../store/useAppStore'
 
 /** Phase 5 — XP per drill tier (not used in plan skeleton). */
@@ -622,6 +623,44 @@ export function flattenPlanDays(planData) {
 
 export function getPlanTotalDays(planData) {
   return flattenPlanDays(planData).length
+}
+
+/**
+ * When the last workout was logged on a prior UTC day, advance `current_day` by one (at most once per UTC day).
+ * Clears no log — only calendar catch-up. Requires `last_plan_roll_date` so repeated mounts the same day do not stack advances.
+ * @param {Record<string, unknown>|null|undefined} planRow
+ * @returns {Promise<Record<string, unknown>|null|undefined>}
+ */
+export async function syncWorkoutPlanCalendarDay(planRow) {
+  if (!supabase || !planRow?.id) return planRow
+
+  const today = utcDateString()
+  const last = planRow.last_logged_date
+  const lastRoll = planRow.last_plan_roll_date
+
+  if (lastRoll === today) return planRow
+  if (typeof last !== 'string' || !last || last >= today) return planRow
+
+  const total = getPlanTotalDays(planRow.plan_data)
+  const cur = Math.max(1, Math.round(Number(planRow.current_day) || 1))
+  const next = Math.min(cur + 1, Math.max(total, 1) + 1)
+
+  const { data, error } = await supabase
+    .from('workout_plans')
+    .update({
+      current_day: next,
+      last_plan_roll_date: today,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', planRow.id)
+    .select()
+    .maybeSingle()
+
+  if (error) {
+    console.error('syncWorkoutPlanCalendarDay', error)
+    return planRow
+  }
+  return data || planRow
 }
 
 /**

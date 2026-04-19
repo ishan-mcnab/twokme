@@ -10,6 +10,7 @@ import {
   getDayForCurrentPlanIndex,
   getPlanTotalDays,
   getPlanWeekMeta,
+  syncWorkoutPlanCalendarDay,
 } from '../lib/planGenerator'
 import { logWorkoutAndDistributeXP } from '../lib/xpSystem'
 import { getStreakStatus, isStreakMilestone, utcDateString } from '../lib/streakSystem'
@@ -88,6 +89,7 @@ export function Workout() {
   const currentBuild = useAppStore((s) => s.currentBuild)
   const setCurrentBuild = useAppStore((s) => s.setCurrentBuild)
   const currentWorkoutPlan = useAppStore((s) => s.currentWorkoutPlan)
+  const planLastLoggedDate = useAppStore((s) => s.currentWorkoutPlan?.last_logged_date)
   const setCurrentWorkoutPlan = useAppStore((s) => s.setCurrentWorkoutPlan)
   const setCurrentStreak = useAppStore((s) => s.setCurrentStreak)
   const onboardingData = useAppStore((s) => s.onboardingData)
@@ -145,12 +147,16 @@ export function Workout() {
       let row = useAppStore.getState().currentWorkoutPlan
       if (!row?.plan_data || row.build_id !== buildId) {
         row = await fetchWorkoutPlanForBuild(user.id, buildId)
-        if (cancel) return
-        if (row) setCurrentWorkoutPlan(row)
       }
       if (cancel) return
-      const latest = useAppStore.getState().currentWorkoutPlan
-      if (!latest?.plan_data) {
+      if (row?.id) {
+        row = await syncWorkoutPlanCalendarDay(row)
+        if (cancel) return
+        setCurrentWorkoutPlan(row)
+      } else if (row) {
+        setCurrentWorkoutPlan(row)
+      }
+      if (!row?.plan_data) {
         navigate('/dashboard', { replace: true })
         return
       }
@@ -171,14 +177,16 @@ export function Workout() {
         if (!cancel) setAlreadyLogged(false)
         return
       }
-      const s = await getStreakStatus(user.id, buildId, currentDay)
+      const s = await getStreakStatus(user.id, buildId, currentDay, {
+        planLastLoggedDate: planLastLoggedDate,
+      })
       if (!cancel) setAlreadyLogged(s.alreadyLoggedToday)
     }
     check()
     return () => {
       cancel = true
     }
-  }, [user?.id, currentBuild?.id, currentDay])
+  }, [user?.id, currentBuild?.id, currentDay, planLastLoggedDate])
 
   useEffect(() => {
     if (!planData || !currentBuild?.id || !day) return
@@ -241,7 +249,9 @@ export function Workout() {
     completionTimersRef.current.forEach((id) => window.clearTimeout(id))
     completionTimersRef.current = []
 
-    const pre = await getStreakStatus(user.id, buildId, Number(planRow?.current_day) || 1)
+    const pre = await getStreakStatus(user.id, buildId, Number(planRow?.current_day) || 1, {
+      planLastLoggedDate: planRow?.last_logged_date,
+    })
     setWasStreakBroken(pre.streakBroken)
 
     setCompletion(true)

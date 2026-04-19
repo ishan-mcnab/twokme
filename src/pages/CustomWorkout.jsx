@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -7,7 +8,7 @@ import { Button } from '../components/ui/Button'
 import { ATTRIBUTE_UI_GROUPS } from '../lib/attributeUiGroups'
 import { logCustomWorkout } from '../lib/xpSystem'
 import { getStreakStatus, isStreakMilestone, utcDateString } from '../lib/streakSystem'
-import { fetchWorkoutPlanForBuild } from '../lib/planGenerator'
+import { fetchWorkoutPlanForBuild, syncWorkoutPlanCalendarDay } from '../lib/planGenerator'
 
 function formatAttrLabel(key) {
   return String(key || '').replaceAll('_', ' ')
@@ -54,7 +55,6 @@ export function CustomWorkout() {
   const [workoutName, setWorkoutName] = useState('')
   const [selected, setSelected] = useState(() => new Set())
   const [intensity, setIntensity] = useState('moderate')
-  const [planDay, setPlanDay] = useState(1)
   const [submitting, setSubmitting] = useState(false)
   const [completion, setCompletion] = useState(false)
   const [flash, setFlash] = useState(false)
@@ -73,10 +73,13 @@ export function CustomWorkout() {
       let row = currentWorkoutPlan
       if (!row?.plan_data || row.build_id !== currentBuild.id) {
         row = await fetchWorkoutPlanForBuild(user.id, currentBuild.id)
-        if (row && !cancel) setCurrentWorkoutPlan(row)
       }
-      if (!cancel && row?.current_day != null) {
-        setPlanDay(Number(row.current_day) || 1)
+      if (cancel) return
+      if (row?.id) {
+        row = await syncWorkoutPlanCalendarDay(row)
+        if (!cancel) setCurrentWorkoutPlan(row)
+      } else if (row && !cancel) {
+        setCurrentWorkoutPlan(row)
       }
     }
     void loadPlanDay()
@@ -109,12 +112,22 @@ export function CustomWorkout() {
 
   const runSubmit = useCallback(async () => {
     if (!user?.id || !currentBuild?.id || submitting) return
+    const plan = useAppStore.getState().currentWorkoutPlan
+    if (!plan?.id) {
+      return
+    }
+
     setSubmitting(true)
-    const pre = await getStreakStatus(user.id, currentBuild.id, planDay)
+    const planDayNum = Number(plan.current_day) || 1
+    const pre = await getStreakStatus(user.id, currentBuild.id, planDayNum, {
+      planLastLoggedDate: plan.last_logged_date,
+    })
     setWasStreakBroken(pre.streakBroken)
 
-    setCompletion(true)
-    setFlash(true)
+    flushSync(() => {
+      setCompletion(true)
+      setFlash(true)
+    })
     window.setTimeout(() => setFlash(false), 150)
 
     try {
@@ -126,10 +139,18 @@ export function CustomWorkout() {
           focusAttributes: selectedList,
           intensity,
         },
-        planDay,
+        plan,
       )
+      if (result.skipped) {
+        setSubmitting(false)
+        setCompletion(false)
+        setFlash(false)
+        navigate('/dashboard', { replace: true })
+        return
+      }
       const prevBuild = useAppStore.getState().currentBuild
       setCurrentBuild({ ...(prevBuild || {}), attributes: result.attributes })
+      if (result.planRow) setCurrentWorkoutPlan(result.planRow)
       setCurrentStreak(result.streakDay)
       setStreakAfter(result.streakDay)
       setMilestoneHit(isStreakMilestone(result.streakDay))
@@ -141,9 +162,10 @@ export function CustomWorkout() {
       const id2 = window.setTimeout(() => navigate('/dashboard', { replace: true }), 2500)
       completionTimersRef.current.push(id1, id2)
     } catch {
-      setSubmitting(false)
       setCompletion(false)
       setFlash(false)
+    } finally {
+      setSubmitting(false)
     }
   }, [
     user,
@@ -152,10 +174,10 @@ export function CustomWorkout() {
     workoutName,
     selectedList,
     intensity,
-    planDay,
     navigate,
     setCurrentBuild,
     setCurrentStreak,
+    setCurrentWorkoutPlan,
   ])
 
   useEffect(() => {
