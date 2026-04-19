@@ -5,11 +5,7 @@ import { Logo } from '../components/Logo'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
 import { PageWrapper } from '../components/ui/PageWrapper'
-import {
-  isSupabaseConfigured,
-  signInWithEmail,
-  signInWithGoogle,
-} from '../lib/auth'
+import { signInWithEmail, signInWithGoogle } from '../lib/auth'
 import { resolvePostLoginPath } from '../lib/postAuthRedirect'
 
 function GoogleIcon() {
@@ -47,10 +43,6 @@ export function Login() {
     setError('')
     setBusy(true)
     try {
-      if (!isSupabaseConfigured()) {
-        setError('Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.')
-        return
-      }
       const { data, error: signError } = await signInWithEmail(email, password)
       if (signError) {
         setError(signError.message)
@@ -73,10 +65,6 @@ export function Login() {
     setError('')
     setBusy(true)
     try {
-      if (!isSupabaseConfigured()) {
-        setError('Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to .env.local.')
-        return
-      }
       const { error: oauthError } = await signInWithGoogle()
       if (oauthError) setError(oauthError.message)
     } catch (err) {
@@ -102,14 +90,6 @@ export function Login() {
           <h1 className="mb-6 text-center font-display text-2xl font-bold uppercase tracking-wide text-[var(--text-primary)]">
             Sign In
           </h1>
-
-          {!isSupabaseConfigured() ? (
-            <p className="mb-4 text-center text-sm text-[var(--text-secondary)]">
-              Supabase environment variables are missing. Add them to{' '}
-              <span className="font-mono text-[var(--neon-blue)]">.env.local</span>{' '}
-              and restart the dev server.
-            </p>
-          ) : null}
 
           <form className="space-y-4" onSubmit={onSubmit}>
             <div>
