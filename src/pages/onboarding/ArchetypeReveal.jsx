@@ -25,6 +25,25 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms))
 }
 
+/** Ensure parallel string[] for comp cards (handles legacy jsonb: object keys, single string). */
+function normalizeCompReasonsArray(names, raw, fill = 3) {
+  const n = Math.max(fill, Array.isArray(names) ? names.length : 0)
+  const out = Array.from({ length: n }, () => '')
+  if (Array.isArray(raw)) {
+    for (let i = 0; i < n; i++) {
+      if (raw[i] != null) out[i] = String(raw[i]).trim()
+    }
+  } else if (raw && typeof raw === 'object') {
+    for (let i = 0; i < n; i++) {
+      const v = raw[i] ?? raw[String(i)]
+      if (v != null) out[i] = String(v).trim()
+    }
+  } else if (typeof raw === 'string' && raw.trim()) {
+    out[0] = raw.trim()
+  }
+  return out.slice(0, fill)
+}
+
 function TopAttrBars({ attributes }) {
   const top = useMemo(() => {
     return Object.entries(attributes || {})
@@ -139,13 +158,13 @@ export function ArchetypeReveal() {
             playerComps = pc.names || []
             compReasons = pc.reasons || []
           }
-          while (compReasons.length < 3) compReasons.push('')
           if (!cancelled) {
+            const names = playerComps.slice(0, 3)
             setResult({
               archetype: row.archetype,
               flavorText: row.archetype_flavor_text,
-              playerComps: playerComps.slice(0, 3),
-              compReasons: compReasons.slice(0, 3),
+              playerComps: names,
+              compReasons: normalizeCompReasonsArray(names, compReasons, 3),
               usedFallback: false,
               attributes: attrs,
               ovr: computeOVR(attrs, pos),
@@ -194,8 +213,11 @@ export function ArchetypeReveal() {
           archetype_flavor_text: gen.flavorText,
           player_comps: { names: gen.playerComps, reasons: gen.compReasons },
         })
+        const names = (gen.playerComps || []).slice(0, 3)
         setResult({
           ...gen,
+          playerComps: names,
+          compReasons: normalizeCompReasonsArray(names, gen.compReasons, 3),
           attributes: attrs,
           ovr: computeOVR(attrs, pos),
           pos,
@@ -266,6 +288,12 @@ export function ArchetypeReveal() {
   }, [result])
 
   const cardName = result?.displayName || displayName
+
+  const shadesOfRows = useMemo(() => {
+    const names = Array.isArray(result?.playerComps) ? result.playerComps.slice(0, 3) : []
+    const reasons = normalizeCompReasonsArray(names, result?.compReasons, 3)
+    return names.map((name, idx) => ({ name, reason: reasons[idx] ?? '' }))
+  }, [result])
 
   if (loadError && !result) {
     return (
@@ -438,7 +466,7 @@ export function ArchetypeReveal() {
                 SHADES OF
               </p>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {result.playerComps.map((name, idx) => (
+                {shadesOfRows.map(({ name, reason }, idx) => (
                   <div
                     key={`${name}-${idx}`}
                     className="rounded-xl border border-[var(--neon-blue)]/50 bg-[var(--bg-elevated)]/80 p-3 text-center shadow-[0_0_16px_rgba(0,212,255,0.12)]"
@@ -447,7 +475,7 @@ export function ArchetypeReveal() {
                       {name}
                     </p>
                     <p className="mt-2 font-body text-[11px] leading-snug text-[var(--text-secondary)]">
-                      {result.compReasons[idx]}
+                      {reason}
                     </p>
                   </div>
                 ))}

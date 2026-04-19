@@ -270,6 +270,56 @@ function isValidAttributeKey(key) {
   return typeof key === 'string' && ATTRIBUTE_KEYS.includes(key)
 }
 
+/** Do not allocate workout focus slots to attributes already at or above this rating. */
+const TRAINABLE_ATTRIBUTE_MAX = 75
+const LOW_DUNK_THRESHOLD = 40
+
+function attrScore(attributes, key) {
+  return Number(attributes[key]) || 50
+}
+
+function trainableKeysForCategory(category, attributes) {
+  const keys = ATTRIBUTE_CATEGORIES[category] || []
+  return keys.filter((k) => {
+    if (!isValidAttributeKey(k)) return false
+    const v = attrScore(attributes, k)
+    if (v > TRAINABLE_ATTRIBUTE_MAX) return false
+    if (category === 'inside_scoring' && k === 'driving_dunk' && v < LOW_DUNK_THRESHOLD) {
+      return false
+    }
+    return true
+  })
+}
+
+function categoryHasTrainable(category, attributes) {
+  return trainableKeysForCategory(category, attributes).length > 0
+}
+
+/** First path-ordered category from startIdx (0-based) that still has trainable attributes. */
+function firstTrainableCategory(path, attributes, startIdx) {
+  const priority = PATH_CATEGORY_PRIORITY[path]
+  if (!priority?.length) return null
+  for (let j = 0; j < priority.length; j++) {
+    const cat = priority[(startIdx + j) % priority.length]
+    if (categoryHasTrainable(cat, attributes)) return cat
+  }
+  return null
+}
+
+function orderedTrainableKeysAcrossPath(path, attributes) {
+  const priority = PATH_CATEGORY_PRIORITY[path] || []
+  const out = []
+  const seen = new Set()
+  for (const cat of priority) {
+    for (const k of trainableKeysForCategory(cat, attributes)) {
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(k)
+    }
+  }
+  return out.sort((a, b) => attrScore(attributes, a) - attrScore(attributes, b))
+}
+
 function normalizePath(p) {
   const s = String(p || '').toLowerCase()
   if (s === 'offensive' || s === 'defensive' || s === 'balanced') return s
@@ -284,32 +334,53 @@ function getIntensityForWeek(weekNumber) {
 }
 
 function getWeakestCategory(attributes, path) {
-  const priority = PATH_CATEGORY_PRIORITY[path]
-  let weakestCategory = priority[0]
+  const priority = PATH_CATEGORY_PRIORITY[path] || []
+  let weakestCategory = null
   let lowestAvg = Infinity
 
   for (const category of priority) {
-    const attrs = ATTRIBUTE_CATEGORIES[category]
-    if (!attrs?.length) continue
+    const trainable = trainableKeysForCategory(category, attributes)
+    if (!trainable.length) continue
     const avg =
-      attrs.reduce((sum, key) => sum + (Number(attributes[key]) || 50), 0) / attrs.length
+      trainable.reduce((sum, key) => sum + attrScore(attributes, key), 0) / trainable.length
     if (avg < lowestAvg) {
       lowestAvg = avg
       weakestCategory = category
     }
   }
-  return weakestCategory
+
+  return (
+    weakestCategory ||
+    firstTrainableCategory(path, attributes, 0) ||
+    priority[0] ||
+    'athleticism'
+  )
 }
 
 function getSlotCategory(slot, weekNumber, path, attributes) {
-  const priority = PATH_CATEGORY_PRIORITY[path]
+  const priority = PATH_CATEGORY_PRIORITY[path] || []
 
   if (slot === 'primary') {
-    return priority[0]
+    const preferred = priority[0]
+    if (categoryHasTrainable(preferred, attributes)) return preferred
+    return (
+      firstTrainableCategory(path, attributes, 1) ||
+      firstTrainableCategory(path, attributes, 0) ||
+      preferred ||
+      'athleticism'
+    )
   }
 
   if (slot === 'secondary') {
-    return priority[(weekNumber % 3) + 1]
+    const idx = (weekNumber % 3) + 1
+    const preferred = priority[idx] ?? priority[0]
+    if (categoryHasTrainable(preferred, attributes)) return preferred
+    return (
+      firstTrainableCategory(path, attributes, idx + 1) ||
+      firstTrainableCategory(path, attributes, 0) ||
+      preferred ||
+      'athleticism'
+    )
   }
 
   if (slot === 'wildcard') {
@@ -319,11 +390,18 @@ function getSlotCategory(slot, weekNumber, path, attributes) {
   return null
 }
 
-function getFocusAttributes(category, attributes, weekNumber) {
-  const categoryAttrs = ATTRIBUTE_CATEGORIES[category] || []
-  const sorted = [...categoryAttrs].sort(
-    (a, b) => (Number(attributes[a]) || 50) - (Number(attributes[b]) || 50),
-  )
+function getFocusAttributes(category, attributes, weekNumber, path) {
+  let pool = trainableKeysForCategory(category, attributes)
+  if (pool.length === 0) {
+    pool = orderedTrainableKeysAcrossPath(path, attributes)
+  }
+  if (pool.length === 0) {
+    pool = [...ATTRIBUTE_KEYS]
+      .sort((a, b) => attrScore(attributes, a) - attrScore(attributes, b))
+      .slice(0, 8)
+  }
+
+  const sorted = [...pool].sort((a, b) => attrScore(attributes, a) - attrScore(attributes, b))
 
   const nPairs = Math.max(1, Math.floor(sorted.length / 2))
   const offset = (weekNumber - 1) % nPairs
@@ -429,7 +507,7 @@ export function buildAlgorithmicPlan(build, onboardingData) {
 
       if (type === 'workout') {
         const category = getSlotCategory(slot, weekNum, path, attributes)
-        focusAttributes = getFocusAttributes(category, attributes, weekNum)
+        focusAttributes = getFocusAttributes(category, attributes, weekNum, path)
         workoutName = getWorkoutName(category, weekNum)
       } else if (type === 'active_recovery') {
         workoutName = 'Active Recovery'

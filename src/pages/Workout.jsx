@@ -496,7 +496,10 @@ export function Workout() {
       )}
 
       {(day.type === 'workout' || day.type === 'active_recovery') && !completion ? (
-        <div className="hold-to-log-button fixed left-0 right-0 z-30 px-6" style={{ bottom: 'calc(24px + env(safe-area-inset-bottom, 0px))' }}>
+        <div
+          className="hold-to-log-button fixed left-0 right-0 z-30 px-6"
+          style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
+        >
           <div className="mx-auto max-w-[480px]">
             <motion.button
               type="button"

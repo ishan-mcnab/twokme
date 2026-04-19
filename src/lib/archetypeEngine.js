@@ -128,6 +128,39 @@ function padCompsToThree(comps) {
   return out.slice(0, 3)
 }
 
+/**
+ * Dedupe comps in first-seen order while keeping the reason aligned to that slot,
+ * then pad to three comps with matching default reasons (fixes duplicate comps
+ * breaking compReasons index alignment after `[...new Set(comps)]`).
+ */
+function mergeCompsAndReasonsAfterValidation(comps, reasonsRaw, defaultReason) {
+  const reasons = (reasonsRaw || []).map((r) => String(r).trim())
+  const pairs = []
+  for (let i = 0; i < comps.length; i++) {
+    const c = comps[i]
+    if (!c) continue
+    pairs.push({ comp: c, reason: reasons[i] ?? '' })
+  }
+  const seen = new Set()
+  const uniqComps = []
+  const uniqReasons = []
+  for (const { comp, reason } of pairs) {
+    const k = comp.toLowerCase()
+    if (seen.has(k)) continue
+    seen.add(k)
+    uniqComps.push(comp)
+    uniqReasons.push(reason)
+  }
+  const basis = uniqComps.slice(0, 3)
+  const basisReasons = uniqReasons.slice(0, basis.length)
+  const playerComps = padCompsToThree(basis)
+  const compReasons = [...basisReasons]
+  while (compReasons.length < playerComps.length) {
+    compReasons.push(defaultReason)
+  }
+  return { playerComps, compReasons: compReasons.slice(0, 3) }
+}
+
 function buildFallbackResult(topCandidateName) {
   return {
     archetype: topCandidateName,
@@ -206,8 +239,7 @@ Respond ONLY with valid JSON in this exact format:
       if (!loose) throw new Error('Archetype not in candidate list')
       parsed.archetype = loose
     }
-    let comps = parsed.playerComps.map(normalizeCompName).filter(Boolean)
-    const reasons = (parsed.compReasons || []).map((r) => String(r).trim())
+    const comps = parsed.playerComps.map(normalizeCompName).filter(Boolean)
     for (let i = 0; i < comps.length; i++) {
       if (!isApprovedComp(comps[i])) {
         const found = APPROVED_PLAYER_COMPS.find(
@@ -217,13 +249,16 @@ Respond ONLY with valid JSON in this exact format:
         else throw new Error('Invalid player comp')
       }
     }
-    comps = padCompsToThree([...new Set(comps)])
-    while (reasons.length < 3) reasons.push('Strong stylistic overlap with your skill profile.')
+    const { playerComps, compReasons } = mergeCompsAndReasonsAfterValidation(
+      comps,
+      parsed.compReasons,
+      'Strong stylistic overlap with your skill profile.',
+    )
     return {
       archetype: parsed.archetype,
       flavorText: String(parsed.flavorText).trim(),
-      playerComps: comps,
-      compReasons: reasons.slice(0, 3),
+      playerComps,
+      compReasons,
       usedFallback: false,
     }
   }
@@ -324,8 +359,7 @@ Respond ONLY with valid JSON:
     if (!parsed.flavorText || !Array.isArray(parsed.playerComps)) {
       throw new Error('Malformed evolution JSON')
     }
-    let comps = parsed.playerComps.map(normalizeCompName).filter(Boolean)
-    const reasons = (parsed.compReasons || []).map((r) => String(r).trim())
+    const comps = parsed.playerComps.map(normalizeCompName).filter(Boolean)
     for (let i = 0; i < comps.length; i++) {
       if (!isApprovedComp(comps[i])) {
         const found = APPROVED_PLAYER_COMPS.find((p) => p.toLowerCase() === comps[i].toLowerCase())
@@ -333,12 +367,15 @@ Respond ONLY with valid JSON:
         else throw new Error('Invalid player comp')
       }
     }
-    comps = padCompsToThree([...new Set(comps)])
-    while (reasons.length < 3) reasons.push('Strong fit for how your game evolved.')
+    const { playerComps, compReasons } = mergeCompsAndReasonsAfterValidation(
+      comps,
+      parsed.compReasons,
+      'Strong fit for how your game evolved.',
+    )
     return {
       flavorText: String(parsed.flavorText).trim(),
-      playerComps: comps,
-      compReasons: reasons.slice(0, 3),
+      playerComps,
+      compReasons,
       usedFallback: false,
     }
   }
