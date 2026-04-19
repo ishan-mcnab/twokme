@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
@@ -118,16 +117,18 @@ export function CustomWorkout() {
     }
 
     setSubmitting(true)
+    completionTimersRef.current.forEach((id) => window.clearTimeout(id))
+    completionTimersRef.current = []
+    setShowXpPills(false)
+
     const planDayNum = Number(plan.current_day) || 1
     const pre = await getStreakStatus(user.id, currentBuild.id, planDayNum, {
       planLastLoggedDate: plan.last_logged_date,
     })
     setWasStreakBroken(pre.streakBroken)
 
-    flushSync(() => {
-      setCompletion(true)
-      setFlash(true)
-    })
+    setCompletion(true)
+    setFlash(true)
     window.setTimeout(() => setFlash(false), 150)
 
     try {
@@ -154,7 +155,7 @@ export function CustomWorkout() {
       setCurrentStreak(result.streakDay)
       setStreakAfter(result.streakDay)
       setMilestoneHit(isStreakMilestone(result.streakDay))
-      setXpEarnedMap(result.xpEarned || {})
+      setXpEarnedMap({ ...(result.xpEarned || {}) })
 
       const t0 = performance.now()
       const showXpDelay = Math.max(0, 800 - (performance.now() - t0))
