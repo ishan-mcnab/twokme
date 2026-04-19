@@ -6,7 +6,7 @@ import useAppStore from '../store/useAppStore'
 import { Button } from '../components/ui/Button'
 import { ATTRIBUTE_UI_GROUPS } from '../lib/attributeUiGroups'
 import { logCustomWorkout } from '../lib/xpSystem'
-import { getStreakStatus, isStreakMilestone, utcDateString } from '../lib/streakSystem'
+import { isStreakMilestone, utcDateString } from '../lib/streakSystem'
 import { fetchWorkoutPlanForBuild, syncWorkoutPlanCalendarDay } from '../lib/planGenerator'
 
 function formatAttrLabel(key) {
@@ -62,6 +62,9 @@ export function CustomWorkout() {
   const [streakAfter, setStreakAfter] = useState(0)
   const [wasStreakBroken, setWasStreakBroken] = useState(false)
   const [milestoneHit, setMilestoneHit] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  /** Full-screen green flash (0–150ms) before `completion` becomes true — see runSubmit timer sequence. */
+  const [pendingFlashOverlay, setPendingFlashOverlay] = useState(false)
 
   const completionTimersRef = useRef([])
 
@@ -112,27 +115,25 @@ export function CustomWorkout() {
   const runSubmit = useCallback(async () => {
     if (!user?.id || !currentBuild?.id || submitting) return
     const plan = useAppStore.getState().currentWorkoutPlan
-    if (!plan?.id) {
-      return
-    }
 
     setSubmitting(true)
+    setSubmitError('')
     completionTimersRef.current.forEach((id) => window.clearTimeout(id))
     completionTimersRef.current = []
     setShowXpPills(false)
+    setCompletion(false)
+    setFlash(false)
+    setPendingFlashOverlay(false)
 
-    const planDayNum = Number(plan.current_day) || 1
-    const pre = await getStreakStatus(user.id, currentBuild.id, planDayNum, {
-      planLastLoggedDate: plan.last_logged_date,
-    })
-    setWasStreakBroken(pre.streakBroken)
+    if (!plan?.id) {
+      setSubmitError('No active workout plan. Go back to the dashboard and open a plan first.')
+      setSubmitting(false)
+      return
+    }
 
-    setCompletion(true)
-    setFlash(true)
-    window.setTimeout(() => setFlash(false), 150)
-
+    let result
     try {
-      const result = await logCustomWorkout(
+      result = await logCustomWorkout(
         user.id,
         currentBuild.id,
         {
@@ -142,32 +143,44 @@ export function CustomWorkout() {
         },
         plan,
       )
-      if (result.skipped) {
-        setSubmitting(false)
-        setCompletion(false)
-        setFlash(false)
-        navigate('/dashboard', { replace: true })
-        return
-      }
-      const prevBuild = useAppStore.getState().currentBuild
-      setCurrentBuild({ ...(prevBuild || {}), attributes: result.attributes })
-      if (result.planRow) setCurrentWorkoutPlan(result.planRow)
-      setCurrentStreak(result.streakDay)
-      setStreakAfter(result.streakDay)
-      setMilestoneHit(isStreakMilestone(result.streakDay))
-      setXpEarnedMap({ ...(result.xpEarned || {}) })
-
-      const t0 = performance.now()
-      const showXpDelay = Math.max(0, 800 - (performance.now() - t0))
-      const id1 = window.setTimeout(() => setShowXpPills(true), showXpDelay)
-      const id2 = window.setTimeout(() => navigate('/dashboard', { replace: true }), 2500)
-      completionTimersRef.current.push(id1, id2)
-    } catch {
-      setCompletion(false)
-      setFlash(false)
-    } finally {
+    } catch (e) {
+      const msg =
+        typeof e?.message === 'string' && e.message
+          ? e.message
+          : 'Could not log this workout. Check your connection and try again.'
+      setSubmitError(msg)
       setSubmitting(false)
+      return
     }
+
+    if (result.skipped) {
+      setSubmitError('You already logged a workout for this plan day today.')
+      setSubmitting(false)
+      return
+    }
+
+    const prevBuild = useAppStore.getState().currentBuild
+    setCurrentBuild({ ...(prevBuild || {}), attributes: result.attributes })
+    if (result.planRow) setCurrentWorkoutPlan(result.planRow)
+    setCurrentStreak(result.streakDay)
+    setStreakAfter(result.streakDay)
+    setWasStreakBroken(result.streakBroken)
+    setMilestoneHit(isStreakMilestone(result.streakDay))
+    setXpEarnedMap(result.xpEarned || {})
+
+    // Overlay sequence (timings from product spec; t = 0 is right after successful log)
+    setFlash(true)
+    setPendingFlashOverlay(true)
+
+    const id150 = window.setTimeout(() => {
+      setFlash(false)
+      setCompletion(true)
+      setPendingFlashOverlay(false)
+    }, 150)
+    const id800 = window.setTimeout(() => setShowXpPills(true), 800)
+    const id2500 = window.setTimeout(() => navigate('/dashboard', { replace: true }), 2500)
+    completionTimersRef.current.push(id150, id800, id2500)
+    setSubmitting(false)
   }, [
     user,
     currentBuild,
@@ -362,6 +375,11 @@ export function CustomWorkout() {
                   )
                 })}
               </div>
+              {submitError ? (
+                <p className="rounded-xl border border-[var(--neon-red)]/40 bg-[rgba(255,60,60,0.08)] px-3 py-2 text-center font-body text-sm text-[var(--neon-red)]">
+                  {submitError}
+                </p>
+              ) : null}
               <div className="flex gap-3">
                 <Button className="flex-1" variant="ghost" onClick={() => setStep(2)}>
                   ← Back
@@ -381,7 +399,7 @@ export function CustomWorkout() {
       </main>
 
       <AnimatePresence>
-        {completion ? (
+        {completion || pendingFlashOverlay ? (
           <motion.div
             className="fixed inset-0 z-[50] flex flex-col items-center justify-center bg-[rgba(8,8,16,0.88)]"
             initial={{ opacity: 0 }}
@@ -396,65 +414,69 @@ export function CustomWorkout() {
                 transition={{ duration: 0.15 }}
               />
             ) : null}
-            <div className="relative">
-              <ParticleBurst />
-              <motion.p
-                className="relative z-[1] text-center font-display text-4xl font-bold uppercase leading-none text-[var(--neon-green)] [text-shadow:var(--glow-green)] sm:text-5xl"
-                initial={{ scale: 0.6, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ type: 'spring', stiffness: 220, damping: 18 }}
-              >
-                WORKOUT LOGGED
-              </motion.p>
-            </div>
-
-            {showXpPills && xpEntries.length ? (
-              <div className="pointer-events-none absolute inset-x-0 top-1/3 flex flex-col items-center gap-2">
-                {xpEntries.map(([k, amt], i) => (
-                  <motion.div
-                    key={k}
-                    initial={{ opacity: 0, y: 24 }}
-                    animate={{ opacity: 1, y: -48 }}
-                    transition={{ delay: i * 0.15, duration: 1, ease: 'easeOut' }}
-                    className="font-mono text-sm font-bold text-[var(--neon-gold)]"
+            {completion ? (
+              <>
+                <div className="relative">
+                  <ParticleBurst />
+                  <motion.p
+                    className="relative z-[1] text-center font-display text-4xl font-bold uppercase leading-none text-[var(--neon-green)] [text-shadow:var(--glow-green)] sm:text-6xl"
+                    initial={{ scale: 0.6, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: 'spring', stiffness: 220, damping: 18 }}
                   >
-                    +{amt} XP · {String(k).toUpperCase()}
-                  </motion.div>
-                ))}
-              </div>
-            ) : null}
+                    WORKOUT LOGGED
+                  </motion.p>
+                </div>
 
-            <div className="pointer-events-none absolute bottom-24 left-0 right-0 flex flex-col items-center gap-2 px-4 text-center">
-              {wasStreakBroken ? (
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.5 }}
-                  className="font-display text-xl font-bold uppercase text-[var(--neon-red)]"
-                >
-                  STREAK RESET
-                </motion.p>
-              ) : (
-                <motion.p
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.5 }}
-                  className="font-mono text-lg font-bold text-[var(--neon-gold)]"
-                >
-                  🔥 {streakAfter} day streak
-                </motion.p>
-              )}
-              {milestoneHit ? (
-                <motion.p
-                  initial={{ opacity: 0, scale: 0.8 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.75, type: 'spring' }}
-                  className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[var(--neon-purple)]"
-                >
-                  MILESTONE UNLOCKED
-                </motion.p>
-              ) : null}
-            </div>
+                {showXpPills && xpEntries.length ? (
+                  <div className="pointer-events-none absolute inset-x-0 top-1/3 flex flex-col items-center gap-2">
+                    {xpEntries.map(([k, amt], i) => (
+                      <motion.div
+                        key={k}
+                        initial={{ opacity: 0, y: 24 }}
+                        animate={{ opacity: 1, y: -48 }}
+                        transition={{ delay: i * 0.15, duration: 1, ease: 'easeOut' }}
+                        className="font-mono text-sm font-bold text-[var(--neon-gold)]"
+                      >
+                        +{amt} XP · {String(k).toUpperCase()}
+                      </motion.div>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="pointer-events-none absolute bottom-24 left-0 right-0 flex flex-col items-center gap-2 px-4 text-center">
+                  {wasStreakBroken ? (
+                    <motion.p
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.5 }}
+                      className="font-display text-xl font-bold uppercase text-[var(--neon-red)]"
+                    >
+                      STREAK RESET
+                    </motion.p>
+                  ) : (
+                    <motion.p
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.5 }}
+                      className="font-mono text-lg font-bold text-[var(--neon-gold)]"
+                    >
+                      🔥 {streakAfter} day streak
+                    </motion.p>
+                  )}
+                  {milestoneHit ? (
+                    <motion.p
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.75, type: 'spring' }}
+                      className="font-display text-sm font-bold uppercase tracking-[0.2em] text-[var(--neon-purple)]"
+                    >
+                      MILESTONE UNLOCKED
+                    </motion.p>
+                  ) : null}
+                </div>
+              </>
+            ) : null}
           </motion.div>
         ) : null}
       </AnimatePresence>
